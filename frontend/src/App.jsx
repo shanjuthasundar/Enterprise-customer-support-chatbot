@@ -31,7 +31,10 @@ import {
   X,
 } from "lucide-react";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+const API_URL = import.meta.env.VITE_API_URL
+  || `${window.location.protocol}//${window.location.hostname}:8000/api`;
+const getInitials = (name) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("");
 const SUGGESTIONS = [
   { icon: ArrowDownToLine, text: "How do I return an order?", tag: "RETURNS" },
   { icon: Clock3, text: "When will my order arrive?", tag: "SHIPPING" },
@@ -43,16 +46,21 @@ const formatCharacters = (value) =>
   value > 999 ? `${(value / 1000).toFixed(1)}k` : `${value} characters`;
 
 async function api(path, options = {}) {
-  const response = await fetch(`${API_URL}${path}`, options);
+  const response = await fetch(`${API_URL}${path}`, { credentials: "include", ...options });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed (${response.status})`);
+    const error = new Error(body.detail || `Request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
+  const [authConnectionError, setAuthConnectionError] = useState("");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [documents, setDocuments] = useState([]);
@@ -67,19 +75,42 @@ function App() {
   const inputRef = useRef(null);
   const fileRef = useRef(null);
 
+  useEffect(() => {
+    let isMounted = true;
+    api("/auth/me")
+      .then((result) => {
+        if (isMounted) setAuthUser(result.user);
+      })
+      .catch((error) => {
+        if (isMounted && error.status !== 401) {
+          setAuthConnectionError("We couldn't connect to the account service. Please check that the API is running.");
+        }
+      })
+      .finally(() => {
+        if (isMounted) setIsAuthReady(true);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const loadDocuments = useCallback(async () => {
     try {
       const data = await api("/documents");
       setDocuments(data.documents);
       setApiError("");
-    } catch {
-      setApiError("Can't reach your support assistant. Start the API to connect.");
+    } catch (error) {
+      if (error.status === 401) {
+        setAuthUser(null);
+      } else {
+        setApiError(error.message || "Can't reach your support assistant. Start the API to connect.");
+      }
     }
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) loadDocuments();
-  }, [isAuthenticated, loadDocuments]);
+    if (authUser) loadDocuments();
+  }, [authUser, loadDocuments]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -112,6 +143,7 @@ function App() {
       ]);
       setApiError("");
     } catch (error) {
+      if (error.status === 401) setAuthUser(null);
       setMessages((items) => [
         ...items,
         {
@@ -154,7 +186,47 @@ function App() {
       setDocuments((current) => current.filter((item) => item.id !== document.id));
       setNotice(`“${document.title}” removed from your knowledge base.`);
     } catch (error) {
+      if (error.status === 401) setAuthUser(null);
       setNotice(error.message);
+    }
+  }
+
+  async function submitAuthentication(mode, credentials) {
+    setIsAuthSubmitting(true);
+    setAuthConnectionError("");
+    try {
+      const endpoint = mode === "signup" ? "signup" : "login";
+      const result = await api(`/auth/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(credentials),
+      });
+      setAuthUser(result.user);
+      setMessages([]);
+      setInput("");
+    } catch (error) {
+      if (!error.status || error.status >= 500) {
+        setAuthConnectionError("We couldn't connect to the account service. Please try again.");
+      }
+      throw error;
+    } finally {
+      setIsAuthSubmitting(false);
+    }
+  }
+
+  async function signOut() {
+    try {
+      await api("/auth/logout", { method: "POST" });
+      setAuthUser(null);
+      setMessages([]);
+      setDocuments([]);
+      setApiError("");
+    } catch (error) {
+      if (error.status === 401) {
+        setAuthUser(null);
+      } else {
+        setNotice(error.message || "Couldn't sign out. Please try again.");
+      }
     }
   }
 
@@ -167,8 +239,12 @@ function App() {
 
   const sampleCount = documents.filter((doc) => doc.is_sample).length;
 
-  if (!isAuthenticated) {
-    return <AuthScreen onContinue={() => setIsAuthenticated(true)} />;
+  if (!isAuthReady) {
+    return <main className="auth-loading"><div className="auth-loading-mark"><Sparkles size={19} /></div><span>Getting your space ready…</span></main>;
+  }
+
+  if (!authUser) {
+    return <AuthScreen onSubmit={submitAuthentication} busy={isAuthSubmitting} connectionError={authConnectionError} />;
   }
 
   return (
@@ -180,8 +256,8 @@ function App() {
           <span className="brand-word">kindred<span className="brand-period">.</span></span>
         </a>
         <div className="workspace-switcher">
-          <div className="workspace-avatar">S</div>
-          <div className="workspace-name"><span>Studio & Co.</span><small>Growth plan</small></div>
+          <div className="workspace-avatar">{getInitials(authUser.display_name).slice(0, 1)}</div>
+          <div className="workspace-name"><span>{authUser.display_name}'s workspace</span><small>{authUser.email}</small></div>
           <ChevronDown size={15} strokeWidth={1.8} />
         </div>
         <span className="nav-caption">WORKSPACE</span>
@@ -207,8 +283,8 @@ function App() {
           <button onClick={() => setIsKnowledgeOpen(true)}>Add more knowledge <ArrowRight size={13} /></button>
         </div>
         <button className="profile-row" onClick={() => setNotice("Account settings are coming soon.")}>
-          <div className="profile-avatar">JD<span /></div>
-          <div className="profile-info"><span>Jordan Davis</span><small>Workspace owner</small></div>
+          <div className="profile-avatar">{getInitials(authUser.display_name)}<span /></div>
+          <div className="profile-info"><span>{authUser.display_name}</span><small>{authUser.email}</small></div>
           <MoreHorizontal size={19} />
         </button>
       </aside>
@@ -220,7 +296,7 @@ function App() {
           <div className="topbar-right">
             <div className="status-pill"><span className="status-dot" /> All systems operational</div>
             <button className="icon-button help-button" aria-label="Help" onClick={() => setNotice("Need a hand? Reach us at hello@kindred.support.")}><CircleHelp size={18} /></button>
-            <button className="sign-out-button" onClick={() => setIsAuthenticated(false)}><LogOut size={14} /><span>Sign out</span></button>
+            <button className="sign-out-button" onClick={signOut}><LogOut size={14} /><span>Sign out</span></button>
           </div>
         </header>
 
@@ -298,7 +374,7 @@ function App() {
             <div className="context-title"><div><span className="eyebrow">YOUR ASSISTANT</span><h2>At a glance</h2></div><button className="icon-button" aria-label="Settings" onClick={() => setNotice("Assistant settings are coming soon.")}><Settings2 size={17} /></button></div>
             <div className="assistant-card">
               <div className="assistant-card-top"><div className="assistant-card-avatar"><Sparkles size={17} fill="currentColor" /></div><span className="active-badge"><span /> ACTIVE</span></div>
-              <h3>Studio & Co. assistant</h3><p>Here for the little things and the big questions.</p>
+              <h3>{authUser.display_name}'s assistant</h3><p>Here for the little things and the big questions.</p>
               <div className="card-bottom"><span><Headphones size={13} /> Customer support</span><span>·</span><span>English</span></div>
             </div>
             <div className="context-section">

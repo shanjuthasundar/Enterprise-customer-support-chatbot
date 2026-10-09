@@ -9,6 +9,9 @@ __pycache__/
 
 backend/data/knowledge_base.json
 backend/data/knowledge_base.tmp
+backend/data/accounts.sqlite3
+backend/data/accounts.sqlite3-shm
+backend/data/accounts.sqlite3-wal
 
 frontend/node_modules/
 frontend/dist/
