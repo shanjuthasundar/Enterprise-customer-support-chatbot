@@ -1,0 +1,17 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+.env
+.env.*
+!.env.example
+
+backend/data/knowledge_base.json
+backend/data/knowledge_base.tmp
+
+frontend/node_modules/
+frontend/dist/
+
+.DS_Store
+Thumbs.db
