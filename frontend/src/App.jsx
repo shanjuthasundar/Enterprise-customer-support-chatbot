@@ -31,8 +31,10 @@ import {
   X,
 } from "lucide-react";
 
-const API_URL = import.meta.env.VITE_API_URL
-  || `${window.location.protocol}//${window.location.hostname}:8000/api`;
+const DEFAULT_API_URL = window.location.port === "5173"
+  ? `${window.location.protocol}//${window.location.hostname}:8000/api`
+  : `${window.location.origin}/api`;
+const API_URL = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
 const getInitials = (name) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("");
 const SUGGESTIONS = [
