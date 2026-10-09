@@ -22,6 +22,7 @@ from docx import Document as WordDocument
 from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
@@ -30,6 +31,7 @@ from sentence_transformers import SentenceTransformer
 DATA_DIR = Path(__file__).resolve().parent / "data"
 KNOWLEDGE_FILE = DATA_DIR / "knowledge_base.json"
 ACCOUNT_DATABASE = DATA_DIR / "accounts.sqlite3"
+FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 CHUNK_SIZE = 900
@@ -763,3 +765,7 @@ def delete_document(
         global _index
         _index = None
     return {"status": "deleted"}
+
+
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
